@@ -187,5 +187,5 @@ pub enum Cursor {
     Caret(Point),
 
     /// Cursor selecting a range of text
-    Selection(Vec<Rectangle>),
+    Selection(Point, Vec<Rectangle>),
 }

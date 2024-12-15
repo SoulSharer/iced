@@ -901,35 +901,39 @@ where
 
         let translation = text_bounds.position() - Point::ORIGIN;
 
+        let draw_caret = |renderer: &mut Renderer, position: Point| {
+                let cursor =
+                Rectangle::new(
+                    position + translation,
+                    Size::new(
+                        1.0,
+                        self.line_height
+                            .to_absolute(self.text_size.unwrap_or_else(
+                                || renderer.default_size(),
+                            ))
+                            .into(),
+                    ),
+                );
+
+            if let Some(clipped_cursor) =
+                text_bounds.intersection(&cursor)
+            {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: clipped_cursor,
+                        ..renderer::Quad::default()
+                    },
+                    style.value,
+                );
+            }
+        };
+
         if let Some(focus) = state.focus.as_ref() {
             match internal.editor.cursor() {
                 Cursor::Caret(position) if focus.is_cursor_visible() => {
-                    let cursor =
-                        Rectangle::new(
-                            position + translation,
-                            Size::new(
-                                1.0,
-                                self.line_height
-                                    .to_absolute(self.text_size.unwrap_or_else(
-                                        || renderer.default_size(),
-                                    ))
-                                    .into(),
-                            ),
-                        );
-
-                    if let Some(clipped_cursor) =
-                        text_bounds.intersection(&cursor)
-                    {
-                        renderer.fill_quad(
-                            renderer::Quad {
-                                bounds: clipped_cursor,
-                                ..renderer::Quad::default()
-                            },
-                            style.value,
-                        );
-                    }
+                    draw_caret(renderer, position);
                 }
-                Cursor::Selection(ranges) => {
+                Cursor::Selection(position, ranges) => {
                     for range in ranges.into_iter().filter_map(|range| {
                         text_bounds.intersection(&(range + translation))
                     }) {
@@ -940,6 +944,11 @@ where
                             },
                             style.selection,
                         );
+
+                    }
+
+                    if focus.is_cursor_visible() {
+                        draw_caret(renderer, position);
                     }
                 }
                 Cursor::Caret(_) => {}

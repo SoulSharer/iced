@@ -110,6 +110,75 @@ impl editor::Editor for Editor {
         let cursor = internal.editor.cursor();
         let buffer = buffer_from_editor(&internal.editor);
 
+        let caret_position = || {
+            let line_height = buffer.metrics().line_height;
+
+            let visual_lines_offset = visual_lines_offset(cursor.line, buffer);
+
+            let line = buffer
+                .lines
+                .get(cursor.line)
+                .expect("Cursor line should be present");
+
+            let layout = line
+                .layout_opt()
+                .as_ref()
+                .expect("Line layout should be cached");
+
+            let mut lines = layout.iter().enumerate();
+
+            let (visual_line, offset) = lines
+                .find_map(|(i, line)| {
+                    let start = line
+                        .glyphs
+                        .first()
+                        .map(|glyph| glyph.start)
+                        .unwrap_or(0);
+                    let end =
+                        line.glyphs.last().map(|glyph| glyph.end).unwrap_or(0);
+
+                    let is_cursor_before_start = start > cursor.index;
+
+                    let is_cursor_before_end = match cursor.affinity {
+                        cosmic_text::Affinity::Before => cursor.index <= end,
+                        cosmic_text::Affinity::After => cursor.index < end,
+                    };
+
+                    if is_cursor_before_start {
+                        // Sometimes, the glyph we are looking for is right
+                        // between lines. This can happen when a line wraps
+                        // on a space.
+                        // In that case, we can assume the cursor is at the
+                        // end of the previous line.
+                        // i is guaranteed to be > 0 because `start` is always
+                        // 0 for the first line, so there is no way for the
+                        // cursor to be before it.
+                        Some((i - 1, layout[i - 1].w))
+                    } else if is_cursor_before_end {
+                        let offset = line
+                            .glyphs
+                            .iter()
+                            .take_while(|glyph| cursor.index > glyph.start)
+                            .map(|glyph| glyph.w)
+                            .sum();
+
+                        Some((i, offset))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or((
+                    layout.len().saturating_sub(1),
+                    layout.last().map(|line| line.w).unwrap_or(0.0),
+                ));
+
+            Point::new(
+                offset,
+                (visual_lines_offset + visual_line as i32) as f32 * line_height
+                    - buffer.scroll().vertical,
+            )
+        };
+
         match internal.editor.selection_bounds() {
             Some((start, end)) => {
                 let line_height = buffer.metrics().line_height;
@@ -153,83 +222,9 @@ impl editor::Editor for Editor {
                     })
                     .collect();
 
-                Cursor::Selection(regions)
+                Cursor::Selection(caret_position(), regions)
             }
-            _ => {
-                let line_height = buffer.metrics().line_height;
-
-                let visual_lines_offset =
-                    visual_lines_offset(cursor.line, buffer);
-
-                let line = buffer
-                    .lines
-                    .get(cursor.line)
-                    .expect("Cursor line should be present");
-
-                let layout = line
-                    .layout_opt()
-                    .as_ref()
-                    .expect("Line layout should be cached");
-
-                let mut lines = layout.iter().enumerate();
-
-                let (visual_line, offset) = lines
-                    .find_map(|(i, line)| {
-                        let start = line
-                            .glyphs
-                            .first()
-                            .map(|glyph| glyph.start)
-                            .unwrap_or(0);
-                        let end = line
-                            .glyphs
-                            .last()
-                            .map(|glyph| glyph.end)
-                            .unwrap_or(0);
-
-                        let is_cursor_before_start = start > cursor.index;
-
-                        let is_cursor_before_end = match cursor.affinity {
-                            cosmic_text::Affinity::Before => {
-                                cursor.index <= end
-                            }
-                            cosmic_text::Affinity::After => cursor.index < end,
-                        };
-
-                        if is_cursor_before_start {
-                            // Sometimes, the glyph we are looking for is right
-                            // between lines. This can happen when a line wraps
-                            // on a space.
-                            // In that case, we can assume the cursor is at the
-                            // end of the previous line.
-                            // i is guaranteed to be > 0 because `start` is always
-                            // 0 for the first line, so there is no way for the
-                            // cursor to be before it.
-                            Some((i - 1, layout[i - 1].w))
-                        } else if is_cursor_before_end {
-                            let offset = line
-                                .glyphs
-                                .iter()
-                                .take_while(|glyph| cursor.index > glyph.start)
-                                .map(|glyph| glyph.w)
-                                .sum();
-
-                            Some((i, offset))
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or((
-                        layout.len().saturating_sub(1),
-                        layout.last().map(|line| line.w).unwrap_or(0.0),
-                    ));
-
-                Cursor::Caret(Point::new(
-                    offset,
-                    (visual_lines_offset + visual_line as i32) as f32
-                        * line_height
-                        - buffer.scroll().vertical,
-                ))
-            }
+            _ => Cursor::Caret(caret_position()),
         }
     }
 
